@@ -24,7 +24,7 @@ const intializeDBAndServer = async () => {
       console.log('Server is Running at http://localhost:3000/')
     })
   } catch (e) {
-    console.log(`DB Error: ${e.message}`)
+    console.log(`DB Error${e.message}`)
     process.exit(1)
   }
 }
@@ -50,14 +50,17 @@ const getFollowingPeopleIdsOfUser = async username => {
 
 // AUTHENTICAITON TOKEN
 
-const authentication = (request, response, next) => {
+const authentication = async (request, response, next) => {
   let jwtToken
   const authHeader = request.headers['authorization']
-  if (authHeader) {
+  if (authHeader !== undefined) {
     jwtToken = authHeader.split(' ')[1]
   }
-  if (jwtToken) {
-    jwt.verify(jwtToken, 'SECRET_KEY', (error, payload) => {
+  if (jwtToken === undefined) {
+    response.status(401)
+    response.send('Invalid JWT Token')
+  } else {
+    jwt.verify(jwtToken, 'MY_SECRET_TOKEN', async (error, payload) => {
       if (error) {
         response.status(401)
         response.send('Invalid JWT Token')
@@ -67,9 +70,6 @@ const authentication = (request, response, next) => {
         next()
       }
     })
-  } else {
-    response.status(401)
-    response.send('Invalid JWT Token')
   }
 }
 
@@ -81,9 +81,7 @@ const tweetAccessVerification = async (request, response, next) => {
   const getTweetQuery = `
   SELECT 
   * 
-  FROM 
-
-  tweet
+  FROM tweet
   INNER JOIN follower
   ON tweet.user_id = follower.following_user_id 
   
@@ -106,10 +104,7 @@ app.post('/register/', async (request, response) => {
   const selectUserQuery = `
   SELECT 
   * 
-  FROM 
-  
-  user
-  
+  FROM user
   WHERE 
   username = '${username}';  `
 
@@ -185,8 +180,9 @@ app.get('/user/tweets/feed/', authentication, async (request, response) => {
   
   WHERE 
   user.user_id IN (${followingPeopleIds})
-  ORDER BY date_time DESC
-  LIMIT 4 ; `
+  ORDER BY dateTime
+  LIMIT 4
+  OFFSET 0 ; `
 
   const tweets = await db.all(getTweetsQuery)
   response.send(tweets)
@@ -270,14 +266,23 @@ app.get(
     WHERE tweet_id = '${tweetId}'; `
 
     const repliedUsers = await db.all(getRepliedQuery)
-    response.send({replies: repliedUsers})
+    response.send(`{replies: ${repliedUsers}`)
   },
 )
 
 // API - 9
 
+ConvertObjectToResponseObject = dbObject => {
+  return  {
+    "tweet": dbObject.tweet,
+    "likes": dbObject.likes,
+    "replies": dbObject.replies,
+    "dateTime": dbObject.date_time,
+  };
+};
+
 app.get('/user/tweets/', authentication, async (request, response) => {
-  const { userId } = request
+  const {userId} = request
   const getTweetsQuery = `
   SELECT 
   tweet, 
@@ -293,7 +298,8 @@ app.get('/user/tweets/', authentication, async (request, response) => {
   GROUP BY tweet.tweet_id; `
 
   const tweets = await db.all(getTweetsQuery)
-  response.send(tweets)
+  response.send(tweets.map(eachObject => ConvertObjectToResponseObject(eachObject)),
+  )
 })
 
 //API - 10
@@ -311,23 +317,22 @@ app.post('/user/tweets/', authentication, async (request, response) => {
 
 // API - 11
 
-app.delete('/tweets/:tweetId/', authentication, async (request, response) => {
-  const {tweetId} = request.params
-  const {userId} = request
-  const getTheTweetQuery = `
-  SELECT * FROM tweet WHERE user_id = '${userId}' AND tweet_id = '${tweetId}'; `
+app.delete(
+  '/tweets/:tweetId/',
+  authentication,
+  async (request, response) => {
+    const {tweetId} = request.params
+    const {userId} = request
+    const getTheTweetQuery = `SELECT * FROM tweet WHERE user_id = '${userId}' AND tweet_id = '${tweetId}'; `
 
-  const tweet = await db.get(getTheTweetQuery)
-  //console.log(tweet)
+    const tweet = await db.get(getTheTweetQuery)
+    //console.log(tweet)
 
-  if (tweet === undefined) {
-    response.status(401)
-    response.send('Invalid Request')
-  } else {
-    const deleteTweetQuery = `DELETE FROM tweet WHERE tweet_id = '${tweetId}'; `
-    await db.run(deleteTweetQuery)
-    response.send('Tweet Removed')
-  }
-})
+    if (tweet === undefined) {
+      const deleteTweetQuery = `DELETE FROM tweet WHERE tweet_id = '${tweetId}'; `
+      await db.run(deleteTweetQuery)
+      response.send('Tweet Removed')
+    } 
+  });
 
 module.exports = app
